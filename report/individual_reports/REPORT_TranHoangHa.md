@@ -3,96 +3,139 @@
 - **Student Name**: Trần Hoàng Hà
 - **Student ID**: 2A202600612
 - **Date**: 01-06-2026
-- **Focus**: VinWonders Agent — anti-spam / anti-loop guardrails, response discipline (Karpathy-inspired), policy & routing hardening
+- **Git author**: `HaTH <tranhoangha94@gmail.com>`
+- **Focus**: ReAct loop (Python), telemetry/trace & parse recovery, Security Guardrails (Python + TypeScript), routing chống ticket nhầm (`SORRY_FALLBACK`)
+
+---
+
+## Commits đã đóng góp (theo `git log --author=HaTH`)
+
+| Hash | Ngày | Message | File chính |
+|------|------|---------|------------|
+| `3143503` | 2026-06-01 | Add React Loop | `src/agent/agent.py` |
+| `954095b` | 2026-06-01 | Update Agen, trace quality, handle hallucinate | `src/agent/agent.py` |
+| `54645ca` | 2026-06-01 | Update spam ticket | `vinwonders-agent/lib/agent-tools.ts` |
+| `519d688` | 2026-06-01 | Advoice unnecessary ticket | `vinwonders-agent/lib/agent-tools.ts` |
+| `1930580` | 2026-06-01 | Implement Security GuardsRail | `src/security/*`, `vinwonders-agent/lib/guardrails.ts`, `SECURITY*.md`, ví dụ secure route/agent |
+| `8f137fc` | 2026-06-01 | ignore venv | `.gitignore` |
+| `e76390b` | 2026-06-01 | Update report | `report/individual_reports/REPORT_TranHoangHa.md`, `GROUP_REPORT_Table_D1.md` |
+
+*Các PR merge: #7, #11, #12, #13 (branch `hath`).*
+
+**Phân công nhóm (tham chiếu [`GROUP_REPORT_Table_D1.md`](../group_report/GROUP_REPORT_Table_D1.md)):** guard spam v2.1 (`tool-guard`, silent stream, Karpathy rules, sửa merge `agent-tools`) do **Nguyễn Hồ Diệu Linh**; E2E VinWonders API/UI do **Hoàng Đức Trường**. Phần dưới chỉ mô tả commit của **Trần Hoàng Hà**.
 
 ---
 
 ## I. Technical Contribution (15 Points)
 
-*Đóng góp chính vào codebase **vinwonders-agent/** (Next.js + AI SDK + Ollama + tooldoc.md + Group report).*
+### 1.1 Triển khai vòng ReAct (Python) — `3143503`
 
-### Mô tả đóng góp
+Thay skeleton TODO trong `src/agent/agent.py` bằng vòng **Thought → Action → Observation → Final Answer**:
 
-#### 1.1 Chống vòng lặp & spam lệnh / tool
+- `get_system_prompt()` liệt kê tool + format ReAct (dùng `textwrap.dedent`).
+- `run()`: gọi LLM từng bước, parse `Action: tool_name(args)`, execute tool, append observation vào prompt, dừng khi có `Final Answer:`.
+- `_parse_action`, `_execute_tool`, `_build_prompt` — đủ để chạy lab với `run_agent.py` / provider thật.
 
-- **Vấn đề:** Khi khách spam cùng intent (vd. “mất đồ”, suggestion nhanh), server routing (`detectServerTool`) gọi tool lặp → stream tool + LLM liên tục, gây cảm giác “vòng lặp vô hạn” và tạo ticket/booking trùng.
-- **Giải pháp:**
-  - Module **`vinwonders-agent/lib/tool-guard.ts`**: giới hạn gọi tool trùng, cooldown tool liên tiếp, đếm tool theo phiên.
-  - **`evaluateConsecutiveSpamGuard`**: nếu cùng câu user lặp **3 lần liên tiếp** → **silent stream** (không thêm assistant message, không gọi LLM).
-  - **Client** (`vinwonders-agent/app/page.tsx`): `sendLockRef` chống double-submit; chặn gửi lần thứ 3 + banner cooldown.
-  - **Native tools** (`vinwonders-agent/app/api/chat/route.ts`): `stopWhen: stepCountIs(3)` (AI SDK) giới hạn vòng tool/LLM mỗi lượt.
+Đây là đóng góp **core Lab 3** theo hướng dẫn instructor (ReAct mechanics).
 
-#### 1.2 Sửa lỗi routing tool
+### 1.2 Trace, logging & xử lý parse fail — `954095b`
 
-- **`vinwonders-agent/lib/agent-tools.ts`:** Gộp `parseBookInput` + một `detectServerTool` duy nhất (trước đó duplicate `export` gây **build fail** Turbopack).
+Cải thiện độ tin cậy khi model không tuân format:
 
-#### 1.3 Giới hạn phản hồi out-of-scope (Karpathy-inspired)
+- `self.trace: List[Dict]` + `get_trace()` — lưu từng bước (assistant, tool, observation, `parse_error`, `final_answer`).
+- Log structured: `AGENT_START` (kèm `max_steps`), `AGENT_STEP` (usage, latency), `AGENT_PARSE_ERROR`.
+- Khi **không parse được Action**: không `break` sớm; đẩy observation lỗi parser vào history và **tiếp tục vòng** (giảm “kẹt” một shot).
+- System prompt bổ sung: tool unavailable → giải thích; không cần tool → trả `Final Answer` trực tiếp.
 
-- Module **`vinwonders-agent/lib/karpathy-response-rules.ts`**: 4 nguyên tắc (suy nghĩ trước khi trả lời, đơn giản, surgical, tiêu chí hoàn thành) — nguồn [andrej-karpathy-skills](https://github.com/multica-ai/andrej-karpathy-skills).
-- **`vinwonders-agent/lib/agent-policy.ts`:** `SCOPE_RULES` / `OFF_TOPIC_REPLY` rút gọn; `maxSentencesHint` mặc định **3**; thêm regex off-topic (giải thích lịch sử/thế giới, viết bài).
-- System prompt ghép Karpathy qua `buildAgentSystemPrompt(memory, karpathyRules)`; tool summary hints surgical.
+> **Lưu ý:** Trên `main` hiện tại, `agent.py` đã được nhóm tích hợp thêm guardrails (`src/security/guardrails.py` trong `run()`). Logic trace/parse của commit `954095b` là nền tảng; có thể khác một phần so với file đang checkout.
 
-#### 1.4 Hạ tầng phản hồi policy
+### 1.3 Security Guardrails — `1930580`
 
-- **`vinwonders-agent/lib/fixed-reply.ts`:** `createSilentStreamResponse` cho spam lặp 3 lần.
-- **`vinwonders-agent/lib/tool-trace.ts`:** nhãn trace cho policy tool trùng / spam.
+Bộ **Guardrails** dùng chung cho lab Python và app Next.js:
+
+| Thành phần | Vai trò |
+|------------|---------|
+| `src/security/guardrails.py` | Python: injection, validate input/output, tool whitelist, rate limit, resource budget, `get_security_report()` |
+| `src/agent/secure_agent_example.py` | Ví dụ agent ReAct có guardrails |
+| `vinwonders-agent/lib/guardrails.ts` | TypeScript: tương đương (rate limit, injection, tool args, PII patterns) |
+| `vinwonders-agent/app/api/chat/secure_route_example.ts` | Mẫu tích hợp vào `/api/chat` |
+| `SECURITY.md`, `SECURITY_ARCHITECTURE.md`, `SECURITY_CHECKLIST.md`, `SECURITY_INTEGRATION.md`, `SECURITY_IMPLEMENTATION_SUMMARY.md`, `SECURITY_QUICK_REFERENCE.md` | Tài liệu triển khai & checklist |
+
+`app/api/chat/route.ts` (nhóm) gọi `getValidator().checkRateLimit` / `validateInput` — module TypeScript do commit này cung cấp.
+
+### 1.4 Giảm ticket / tool nhầm khi model “xin lỗi” — `54645ca`, `519d688`
+
+Trong `vinwonders-agent/lib/agent-tools.ts`:
+
+- Thêm regex **`SORRY_FALLBACK`** (`xin lỗi`, `sorry`, `không biết`, `chưa rõ`, …).
+- Chỉ gọi `searchDestination` / `handleEmergency` khi **không** khớp `SORRY_FALLBACK` (tránh routing khẩn cấp/tìm kiếm khi câu mang nghĩa từ chối / lỗi).
+- `519d688`: sửa typo `SORRY _FALLBACK` → `SORRY_FALLBACK` (lỗi syntax sau refactor).
+
+*Khác với spam guard 3 lần (`tool-guard.ts`) — phần đó không nằm trong commit của Hà.*
+
+### 1.5 Repo hygiene — `8f137fc`, `121862a`
+
+- Cập nhật `.gitignore` để bỏ qua `.venv` / virtualenv.
 
 ---
 
-### Modules Implemented
+### Modules implemented (theo commit)
 
-| Module | Vai trò |
-|--------|---------|
-| `vinwonders-agent/lib/tool-guard.ts` | `evaluateToolGuard`, `evaluateConsecutiveSpamGuard`, `countConsecutiveIdenticalUserMessages` |
-| `vinwonders-agent/lib/karpathy-response-rules.ts` | `buildKarpathyResponseRules`, `buildKarpathyToolSummaryHint` |
-| `vinwonders-agent/lib/agent-policy.ts` | `AGENT_LIMITS`, scope/off-topic, `buildAgentSystemPrompt` |
-| `vinwonders-agent/lib/fixed-reply.ts` | Policy stream + silent stream |
-| `vinwonders-agent/app/api/chat/route.ts` | Pipeline guard + `stepCountIs(3)` |
-| `vinwonders-agent/app/page.tsx` | Client spam lock + hint UI |
-| `vinwonders-agent/lib/agent-tools.ts` | Server-side tool detection (syntax fix) |
+| Module | Commit | Vai trò |
+|--------|--------|---------|
+| `src/agent/agent.py` | `3143503`, `954095b` | ReAct loop, trace, parse recovery |
+| `src/security/guardrails.py` | `1930580` | Security validator Python |
+| `src/agent/secure_agent_example.py` | `1930580` | Demo agent có guardrails |
+| `vinwonders-agent/lib/guardrails.ts` | `1930580` | Validator cho Next.js API |
+| `vinwonders-agent/app/api/chat/secure_route_example.ts` | `1930580` | Mẫu route bảo mật |
+| `vinwonders-agent/lib/agent-tools.ts` | `54645ca`, `519d688` | `SORRY_FALLBACK` trong `detectServerTool` |
+| `SECURITY*.md` (6 file) | `1930580` | Hướng dẫn bảo mật |
 
 ---
 
-### Code Highlights
+### Code highlights
 
-**Luồng xử lý request (`POST /api/chat`):**
+**ReAct loop (rút gọn từ `3143503`):**
 
+```python
+while steps < self.max_steps:
+    response = self.llm.generate(prompt, system_prompt=self.get_system_prompt())
+    content = response.get("content", "").strip()
+    final_answer = self._extract_final_answer(content)
+    if final_answer:
+        return final_answer
+    action = self._parse_action(content)
+    if action is None:
+        # 954095b: feed parser error as Observation, continue loop
+        ...
+    tool_name, args = action
+    observation = self._execute_tool(tool_name, args)
+    prompt = self._build_prompt(user_input, self.history)
+    steps += 1
 ```
-validateUserMessage
-  → evaluateConsecutiveSpamGuard (≥3 câu user giống → silent)
-  → isCapabilitiesQuestion / isClearlyOffTopic (policy, không LLM)
-  → detectServerTool + evaluateToolGuard
-  → streamText (stopWhen: stepCountIs(3) nếu native tools)
-```
 
-**Spam guard (server):**
+**Chống routing nhầm khi model / user “xin lỗi”:**
 
 ```typescript
-// vinwonders-agent/lib/tool-guard.ts
-export function evaluateConsecutiveSpamGuard(messages): ConsecutiveSpamGuardResult {
-  const count = countConsecutiveIdenticalUserMessages(messages);
-  if (count >= AGENT_LIMITS.maxConsecutiveDuplicateUserMessages) {
-    return { allow: false, silent: true, consecutiveCount: count };
-  }
-  return { allow: true };
+// vinwonders-agent/lib/agent-tools.ts (54645ca)
+const SORRY_FALLBACK =
+  /(xin lỗi|sorry|bị lỗi|bi loi|không biết|khong biet|chưa rõ|chua ro|không chắc|khong chac)/i;
+
+if (EMERGENCY_MEDICAL.test(lower) && !SORRY_FALLBACK.test(lower)) { ... }
+if (EMERGENCY_INCIDENT.test(lower) && !SORRY_FALLBACK.test(lower)) { ... }
+if (SEARCH_FALLBACK.test(lower) && !SORRY_FALLBACK.test(lower)) { ... }
+```
+
+**Guardrails TypeScript (được `route.ts` dùng):**
+
+```typescript
+// vinwonders-agent/lib/guardrails.ts (1930580)
+export class GuardrailsValidator {
+  checkRateLimit(userId: string, ipAddress: string): boolean { ... }
+  validateInput(userInput: string, userId?: string): boolean { ... }
+  validateTool(toolName: string, toolArgs: Record<string, unknown>, availableTools?: string[]): ... 
 }
 ```
-
-**Giới hạn vòng agent (native tools):**
-
-```typescript
-// vinwonders-agent/app/api/chat/route.ts
-stopWhen: stepCountIs(AGENT_LIMITS.maxAgentToolSteps),
-```
-
-**Biến môi trường (tuỳ chọn):**
-
-| Env | Mặc định | Ý nghĩa |
-|-----|----------|---------|
-| `MAX_CONSECUTIVE_DUPLICATE_USER` | 3 | Chặn silent sau N câu user giống nhau liên tiếp |
-| `MAX_AGENT_TOOL_STEPS` | 3 | Tối đa vòng tool native |
-| `MAX_SAME_TOOL_PER_SESSION` | 6 | Cap tool cùng tên / phiên |
-| `MAX_RESPONSE_SENTENCES` | 3 | Gợi ý độ dài câu trả lời trong prompt |
 
 ---
 
@@ -100,74 +143,92 @@ stopWhen: stepCountIs(AGENT_LIMITS.maxAgentToolSteps),
 
 | Tài liệu | Nội dung |
 |----------|----------|
-| [`tooldoc.md`](../../tooldoc.md) | Evolution **v2.1** — Guardrails & Response Discipline, bảng so sánh, env vars |
-| [`GROUP_REPORT_Table_D1.md`](../group_report/GROUP_REPORT_Table_D1.md) | Báo cáo nhóm Table D1 — kiến trúc, telemetry, RCA, ablation |
-| [`REPORT_HoangDucTruong.md`](REPORT_HoangDucTruong.md) | E2E VinWonders, tools, logging, debug Ollama/AI SDK |
+| `SECURITY.md` + 5 file `SECURITY_*` | Kiến trúc, checklist, tích hợp Python/TS, quick reference |
+| [`GROUP_REPORT_Table_D1.md`](../group_report/GROUP_REPORT_Table_D1.md) | Bảng phân công — Hà: ReAct + Security |
+| [`REPORT_HoangDucTruong.md`](REPORT_HoangDucTruong.md) | E2E VinWonders, tools, logging, UI trace |
+| [`REPORT_NguyenHoDieuLinh.md`](REPORT_NguyenHoDieuLinh.md) | v2.1 anti-spam / Karpathy / `tool-guard` |
 
-**Tương tác với agent loop (VinWonders):** Khác ReAct Python (`Thought` → `Action` → `Observation`), VinWonders dùng **AI SDK tool loop** hoặc **server routing** (`detectServerTool` → tool stream → `streamText` tóm tắt). Guard được chèn **trước** vòng LLM/tool: policy/off-topic không vào loop; spam/tool guard giảm số vòng lặp và observation trùng.
+**Tương tác với agent loop:**
 
-**Tham chiếu ngoài:**
-
-- [Karpathy guidelines](https://github.com/multica-ai/andrej-karpathy-skills)
-- [AI SDK `stepCountIs`](https://ai-sdk.dev/docs/reference/ai-sdk-core/step-count-is)
+- **Python ReAct:** block `Thought` / `Action` / `Observation` rõ — phù hợp debug & báo cáo failed trace (`logs/`).
+- **VinWonders:** Hà không implement `tool-guard` hay `stepCountIs`; chỉ bổ sung **SORRY_FALLBACK** + **guardrails** cho input/rate limit.
 
 ---
 
 ## II. Debugging Case Study (10 Points)
 
-### Problem Description
+### Problem 1 — Model không parse được Action (ReAct Python)
 
-Khi spam suggestion **“Mất đồ khẩn cấp”** hoặc gửi liên tục cùng câu, agent gọi `handleEmergency` lặp → mỗi lần tạo ticket mới, UI tool cards chồng, stream không kết thúc rõ ràng. Build cũng **fail** tại `lib/agent-tools.ts` do hai lần `export function detectServerTool` lồng nhau.
+**Mô tả:** Với model nhỏ / mock, output thiếu `Action:` đúng format → agent dừng sớm, không có `Final Answer`.
 
-### Log Source
+**Log:** `AGENT_PARSE_ERROR`, `AGENT_NO_ACTION` (trước `954095b`).
 
-- **Build:** Turbopack — `'import' and 'export' cannot be used outside of module code` tại `agent-tools.ts:123`.
-- **Runtime / trace:** Tool Trace panel hiển thị nhiều bước `handleEmergency` / `searchDestination` liên tiếp cho cùng user text; metrics `toolUsed` lặp trong phiên.
+**Chẩn đoán:** `_parse_action` trả `None` → vòng lặp `break` ngay.
 
-### Diagnosis
+**Giải pháp (`954095b`):** Ghi observation lỗi parser, rebuild prompt, `continue` — cho model một “Observation” để sửa hướng (tương tự ReAct chuẩn khi tool fail).
 
-1. **Routing:** `detectServerTool` khớp regex intent mỗi lần user gửi — không xét lịch sử hội thoại.
-2. **Không có cap bước:** Server path gọi tool + summary mỗi request; client cho phép double-submit khi `status` chưa kịp `streaming`.
-3. **Syntax:** Refactor `parseBookInput` để lại function `detectServerTool` bị duplicate — module parse lỗi.
+---
 
-### Solution
+### Problem 2 — Ticket khẩn cấp / search kích hoạt nhầm
 
-1. Sửa **`agent-tools.ts`** — một `detectServerTool` + `parseBookInput` riêng.
-2. Thêm **`tool-guard.ts`** + pipeline trong **`route.ts`** (spam silent, tool cooldown).
-3. **`page.tsx`:** `sendLockRef` + chặn lần gửi thứ 3; **`stopWhen: stepCountIs(3)`** cho native tools.
-4. Karpathy rules + policy off-topic để giảm LLM trả lời dài / out-of-scope sau khi loop đã được kiểm soát.
+**Mô tả:** Câu kiểu “xin lỗi mình không biết…” hoặc phản hồi lỗi vẫn khớp `EMERGENCY_*` / `SEARCH_FALLBACK` → `handleEmergency` tạo ticket không cần thiết.
+
+**Log / UI:** Nhiều `tool-handleEmergency` khi nội dung không phải báo sự cố thật.
+
+**Chẩn đoán:** `detectServerTool` chỉ dựa regex intent, không loại trừ ngữ điệu từ chối / apology.
+
+**Giải pháp (`54645ca`, `519d688`):** `SORRY_FALLBACK` + sửa typo biến regex.
+
+---
+
+### Problem 3 — Thiếu lớp bảo mật production
+
+**Mô tả:** Lab ban đầu chưa có injection check, rate limit, tool whitelist.
+
+**Giải pháp (`1930580`):** Module guardrails song song Python/TS + tài liệu + `secure_*_example` để nhóm gắn vào `route.ts` / `agent.py`.
 
 ---
 
 ## III. Personal Insights: Chatbot vs ReAct (10 Points)
 
-1. **Reasoning:** ReAct (`src/agent/agent.py`) buộc model ghi `Thought` trước `Action` — dễ debug từng bước. VinWonders chatbot thường **một shot** hoặc **tool loop ẩn** (AI SDK); không có block `Thought` riêng nên khi lỗi khó thấy “vì sao” model chọn tool — Tool Trace panel bù phần nào.
+1. **Reasoning:** Implement ReAct (`3143503`) cho thấy **Thought/Action tách bạch** giúp debug hơn chatbot một shot — mỗi bước in/log được. VinWonders chatbot thường ẩn vòng tool trong AI SDK; ReAct Python phù hợp bài lab “đọc trace”.
 
-2. **Reliability:** Agent **kém hơn** chatbot thuần khi: (a) model nhỏ + routing regex quá rộng → gọi tool sai intent; (b) spam → loop tool tốn thời gian hơn chatbot chỉ trả text cố định. Sau guardrails, agent ổn định hơn cho demo khẩn cấp/đặt bàn vì dữ liệu từ mock/tool chính xác hơn hallucination.
+2. **Reliability:** Agent **kém hơn** khi parse fail liên tục (model yếu); **tốt hơn** khi cần tool thật (weather, ticket, location trong `src/tools/`). Trace (`954095b`) và guardrails (`1930580`) là hai lớp bổ sung: một cho **quan sát**, một cho **chặn**.
 
-3. **Observation:** Feedback từ tool output (ticket, danh sách địa điểm) chi phối bước tóm tắt LLM tiếp theo — tương tự `Observation` trong ReAct. Nếu observation trùng (spam), bước sau lãng phí; guard cắt sớm tương đương “dừng loop khi không có thông tin mới”.
+3. **Observation:** Observation sai (parser error hoặc tool spam) lãng phí bước LLM — fix parser loop và `SORRY_FALLBACK` là cắt “observation nhiễu” sớm, tương tự guard spam của nhóm nhưng ở tầng **intent routing**.
 
 ---
 
 ## IV. Future Improvements (5 Points)
 
-- **Scalability:** Rate limit theo `sessionId` / IP trong `lib/guardrails.ts` (đã có skeleton) — gắn vào `/api/chat`; queue cho `handleEmergency` peak giờ cao điểm.
-
-- **Safety:** Supervisor policy layer — audit tool args trước `execute`; không tạo ticket mới nếu ticket cùng loại đã mở trong 15 phút (server-side memory).
-
-- **Performance:** Giữ `stepCountIs` + dedupe UI (`message-parts.ts`); cân nhắc thay silent stream bằng một dòng policy cố định để UX rõ hơn khi spam.
-
-- **Documentation:** Hoàn thiện `tooldoc.md` v2.0 UI (map, form ảnh) khi có Figma; snapshot Tool Trace cho báo cáo lab.
+- **ReAct:** Khôi phục/merge `get_trace()` vào `agent.py` hiện tại cùng guardrails; export trace JSON ra `logs/` mỗi `run()`.
+- **Security:** Bật đầy đủ `validateTool` trên native tools trong `route.ts` (hiện mới rate limit + `validateInput`).
+- **Routing:** Mở rộng `SORRY_FALLBACK` hoặc dùng embedding thay regex thuần cho intent VinWonders.
+- **Testing:** `pytest` cho `GuardrailsValidator` + case `detectServerTool` với câu apology / emergency thật.
 
 ---
 
 ## Kiểm thử đã thực hiện / đề xuất
 
-1. Spam cùng suggestion 3 lần → lần 3: banner client + không phản hồi agent (silent).
-2. Gửi 2 lần “mất ví…” → lần 2 có thể policy tool trùng; lần 3 bị chặn spam.
-3. Hỏi off-topic → `OFF_TOPIC_REPLY` ngắn, không gọi tool.
-4. `npm run build` trong `vinwonders-agent/` — pass sau khi sửa `agent-tools.ts`.
+1. `python run_agent.py` — ReAct với MockProvider: weather / ticket / location intent.
+2. `python src/agent/secure_agent_example.py` (nếu có) — input injection bị chặn.
+3. VinWonders: gửi “xin lỗi mình không biết gì” → **không** tạo ticket (sau `54645ca`).
+4. VinWonders: spam “Mất đồ” — kiểm tra với `tool-guard` (Linh), không thuộc commit Hà.
+5. `npm run build` trong `vinwonders-agent/` — pass sau khi nhóm sửa merge `agent-tools.ts` (Trường/Linh).
 
 ---
 
-> **Phạm vi không đổi trong session:** UI Hybrid (mini-map, form ảnh GPS) vẫn theo spec `tooldoc.md` v2.0; logic spam/guard nằm ở v2.1.
+## Phạm vi & cộng tác
+
+| Hạng mục | Người thực hiện (commit / báo cáo nhóm) |
+|----------|------------------------------------------|
+| ReAct `agent.py`, trace/parse | **Trần Hoàng Hà** |
+| Security modules + docs | **Trần Hoàng Hà** |
+| `SORRY_FALLBACK` trong `agent-tools.ts` | **Trần Hoàng Hà** |
+| `tool-guard`, silent stream, Karpathy, `stepCountIs` | Nguyễn Hồ Diệu Linh |
+| API chat E2E, mock data, UI trace | Hoàng Đức Trường |
+| Security techniques v2 trên `agent.py` | Nguyễn Thị Bích Duyên (merge `5c9e7ad`) |
+
+---
+
+> Báo cáo này được **cập nhật theo git history** (`git log --author=HaTH`), không còn gán các module v2.1 anti-spam/Karpathy vào phạm vi commit của Trần Hoàng Hà.
