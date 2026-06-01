@@ -1,3 +1,5 @@
+<img width="1440" height="875" alt="image" src="https://github.com/user-attachments/assets/ef541988-0ea7-444d-a252-faa24445f933" />
+
 # Hướng dẫn cài đặt & chạy dự án Day 3 — Chatbot vs ReAct Agent
 
 Tài liệu này hướng dẫn cài đặt từ đầu và chạy **toàn bộ** repository, gồm hai phần chính:
